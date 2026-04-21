@@ -1,0 +1,1 @@
+select * from {{ source('airbnb_source', 'bookings') }} limit 5

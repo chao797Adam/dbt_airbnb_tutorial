@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: airbnb_source
+    database: dbt_airbnb
+    schema: source  
+    tables:
+      - name: listings
+      - name: bookings
+      - name: hosts
