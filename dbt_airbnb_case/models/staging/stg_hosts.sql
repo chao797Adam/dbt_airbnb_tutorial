@@ -1,5 +1,5 @@
 {% set incremental_flag = 1 %}
-{% set incremental_col = 'created_at' %}
+{% set incremental_col = 'ingested_at' %}
 
 {{ config(
     materialized = 'incremental',
