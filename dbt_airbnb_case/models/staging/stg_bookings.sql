@@ -1,11 +1,14 @@
-{% set incremental_flag = 1 %}
-{% set incremental_col = 'ingested_at' %}
+{{
+  config(
+    materialized = 'incremental',
+    unique_key = 'booking_id'
+  )
+}}
 
-SELECT * FROM {{ source('airbnb_source', 'bookings') }}
+select *
+from {{ source('airbnb_source', 'bookings') }}
 
-{% if incremental_flag == 1 %}
-    WHERE {{ incremental_col }} > (
-        SELECT COALESCE(MAX({{ incremental_col }}), '1900-01-01') 
-        FROM {{ this }} 
-    )
+{% if is_incremental() %}
+    where
+        ingested_at > (select coalesce(max(ingested_at), '1900-01-01') from {{ this }})
 {% endif %}

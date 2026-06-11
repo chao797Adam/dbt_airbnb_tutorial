@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+profiles.yml
+.user.yml
+/.python-version
