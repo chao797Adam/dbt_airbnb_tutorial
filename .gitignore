@@ -11,3 +11,11 @@ wheels/
 profiles.yml
 .user.yml
 /.python-version
+demo.sql
+# dbt
+target/
+dbt_packages/
+logs/
+dbt_airbnb_case/target/
+dbt_airbnb_case/dbt_packages/
+dbt_airbnb_case/logs/

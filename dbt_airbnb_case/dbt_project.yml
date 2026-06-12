@@ -18,10 +18,9 @@ clean-targets:
 
 models:
   dbt_airbnb_case:
-    
     staging:
       +schema: bronze
-      +materialized: view
+      +materialized: incremental
     
     intermediate:
       +schema: silver
