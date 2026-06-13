@@ -12,14 +12,7 @@ select
     booking_amount,
     cleaning_fee,
     service_fee,
-
-    {{ multiply_and_round('nights_booked', 'booking_amount', 2) }}
-    as booking_amount_rounded,
-    (
-        {{ multiply_and_round('nights_booked', 'booking_amount', 2) }}
-        + coalesce(cleaning_fee, 0)
-        + coalesce(service_fee, 0)
-    ) as total_booking_amount,
+    {{ multiply_and_round('nights_booked', 'booking_amount', 2) }} as total_amount,
     booking_status,
     created_at,
     ingested_at,
