@@ -1,1 +1,0 @@
-select * from {{ source('airbnb_source', 'listings') }} limit 7

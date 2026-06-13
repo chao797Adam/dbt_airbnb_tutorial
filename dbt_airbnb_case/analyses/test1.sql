@@ -1,1 +1,0 @@
-select * from {{ source('airbnb_source', 'hosts') }} limit 7
