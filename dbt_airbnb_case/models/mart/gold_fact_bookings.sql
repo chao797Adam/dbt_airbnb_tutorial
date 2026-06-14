@@ -10,7 +10,7 @@ select
     l.city,
     l.property_type,
     b.booking_date,
-    b.total_booking_amount,
+    b.total_amount,
     b.booking_status,
     b.ingested_at as last_sync_time
 from {{ ref('silver_bookings') }} b
