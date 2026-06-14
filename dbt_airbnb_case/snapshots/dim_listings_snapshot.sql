@@ -1,15 +1,15 @@
 {% snapshot listings_snapshot %}
 
-{{
+    {{
     config(
       target_schema='snapshots',
-      unique_key='listing_id',     
-      strategy='timestamp',
-      updated_at='ingested_at',    
-      dbt_valid_to_current="to_date('9999-12-31')"
+      unique_key='listing_id',
+      strategy='check',
+      check_cols=['price_per_night', 'room_type', 'bedrooms']
     )
 }}
 
-select * from {{ ref('stg_listings') }}
+    select *
+    from {{ ref('stg_listings') }}
 
 {% endsnapshot %}
