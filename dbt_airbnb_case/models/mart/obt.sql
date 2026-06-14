@@ -1,11 +1,12 @@
 {{ config(materialized='table', schema='gold') }}
 
-WITH bookings AS ( SELECT * FROM {{ ref('silver_bookings') }} ),
-     listings AS ( SELECT * FROM {{ ref('silver_listings') }} ),
-     hosts    AS ( SELECT * FROM {{ ref('silver_hosts') }} )
+with
+    bookings as (select * from {{ ref('silver_bookings') }}),
+    listings as (select * from {{ ref('silver_listings') }}),
+    hosts as (select * from {{ ref('silver_hosts') }})
 
-SELECT
-    -- === Bookings 表所有列 ===
+select
+    -- === Bookings table columns ===
     b.booking_id,
     b.listing_id,
     b.booking_date,
@@ -16,11 +17,11 @@ SELECT
     b.booking_amount_rounded,
     b.total_booking_amount,
     b.booking_status,
-    b.created_at AS booking_created_at,
-    b.ingested_at AS booking_ingested_at,
-    b.source_file AS booking_source_file,
+    b.created_at as booking_created_at,
+    b.ingested_at as booking_ingested_at,
+    b.source_file as booking_source_file,
 
-    -- === Listings 表所有列 ===
+    -- === Listings table columns ===
     l.property_type,
     l.room_type,
     l.city,
@@ -30,19 +31,19 @@ SELECT
     l.bedrooms,
     l.price_per_night,
     l.price_per_night_tag,
-    l.created_at AS listing_created_at,
-    l.ingested_at AS listing_ingested_at,
+    l.created_at as listing_created_at,
+    l.ingested_at as listing_ingested_at,
 
-    -- === Hosts 表所有列 ===
+    -- === Hosts table columns ===
     h.host_id,
     h.host_name,
     h.host_since,
     h.is_superhost,
     h.response_rate,
     h.response_rate_tag,
-    h.created_at AS host_created_at,
-    h.ingested_at AS host_ingested_at
+    h.created_at as host_created_at,
+    h.ingested_at as host_ingested_at
 
-FROM bookings b
-LEFT JOIN listings l ON b.listing_id = l.listing_id
-LEFT JOIN hosts h ON l.host_id = h.host_id
+from bookings b
+left join listings l on b.listing_id = l.listing_id
+left join hosts h on l.host_id = h.host_id
