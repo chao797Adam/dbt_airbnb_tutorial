@@ -197,6 +197,32 @@ The `analyses/` directory contains exploratory SQL files (e.g., `explore.sql`, `
 
 ---
 
+## ⚠️ Notes & Deviations from the Reference Tutorial
+
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](#) (adapted here to run on Databricks). During implementation, two issues in the reference video were identified and handled differently in this project:
+
+### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
+
+In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_bookings` — i.e., treated as a **dimension table**. However, each row represents a discrete booking transaction, which makes bookings a **fact table** by nature (transactional grain, one row per business event). Modeling it as a dimension led to duplicate `booking_id` values downstream in the reference project.
+
+In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` enforced as the unique/incremental key at every layer.
+
+### 2. Ambiguity in `booking_amount` vs. `total_amount`
+
+In `silver_bookings.sql`:
+
+```jinja
+{{ multiply_and_round('nights_booked', 'booking_amount', 2) }} as total_amount
+```
+
+This calculation assumes `booking_amount` represents a **per-night rate**, and derives `total_amount = nights_booked * booking_amount`.
+
+However, the source data definition does not make it clear whether `booking_amount` is already the **total price for the booking** (i.e., already aggregated across `nights_booked`) or a per-night rate similar to `price_per_night` in the listings table. If `booking_amount` is already a total, then multiplying it by `nights_booked` again would double-count the duration and significantly overstate `total_amount` / revenue.
+
+**Open question / recommendation:** confirm the semantics of `booking_amount` with the source system or data owner before relying on `total_amount` for downstream reporting. The current implementation assumes `booking_amount` is a per-night rate (consistent with the naming pattern of `price_per_night`), but this should be validated against real source data rather than assumed.
+
+---
+
 ## 📚 References
 
 - [dbt Documentation](https://docs.getdbt.com/docs/introduction)
