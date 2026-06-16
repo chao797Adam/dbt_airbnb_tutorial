@@ -199,7 +199,7 @@ The `analyses/` directory contains exploratory SQL files (e.g., `explore.sql`, `
 
 ## ⚠️ Notes & Deviations from the Reference Tutorial
 
-This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](#) (adapted here to run on Databricks). During implementation, two issues in the reference video were identified and handled differently in this project:
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, three issues in the reference video were identified and handled differently in this project:
 
 ### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
 
@@ -207,7 +207,24 @@ In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_b
 
 In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` enforced as the unique/incremental key at every layer.
 
-### 2. Ambiguity in `booking_amount` vs. `total_amount`
+### 2. Use of `created_at` as snapshot timestamp — not production-grade
+
+In the reference tutorial, the snapshot strategy uses `created_at` as the `updated_at` column for the `timestamp` strategy:
+
+```yaml
+strategy: timestamp
+updated_at: created_at
+```
+
+This is problematic in a real-world context. `created_at` is a **write-once** field — it records when the record was first inserted and never changes. Using it as the snapshot trigger means dbt will **never detect any updates** to an existing row, because the timestamp never moves forward. The snapshot would only capture new inserts, completely missing the SCD2 goal of tracking changes over time.
+
+In production pipelines, the correct approach is to use:
+- `ingested_at` — the timestamp when the record was last loaded into the data platform (updated on every reload by the ingestion layer)
+- `updated_at` — the timestamp from the source system recording when the record was last modified
+
+This project uses `ingested_at` as the incremental filter in staging models, and the snapshots use `strategy: check` (comparing column values directly) rather than relying on a potentially unreliable timestamp from the source. The `check` strategy is more robust when source systems do not provide a trustworthy `updated_at` field.
+
+### 3. Ambiguity in `booking_amount` vs. `total_amount`
 
 In `silver_bookings.sql`:
 
