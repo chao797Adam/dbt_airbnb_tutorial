@@ -1,0 +1,3 @@
+listing_id,host_id,property_type,room_type,city,country,accommodates,bedrooms,bathrooms,price_per_night,created_at
+1,150,House,Entire home,Melbourne,Australia,3,1,2,84,2025-12-26 14:15:54.011160
+501,91,Apartment,Private room,Sydney,Australia,1,2,3,140,2025-12-26 14:15:54.011160

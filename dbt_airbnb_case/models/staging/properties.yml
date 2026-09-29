@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: stg_bookings
+    columns:
+      - name: booking_id
+        tests:
+          - not_null
+          - unique
+  - name: stg_hosts
+    columns:
+      - name: host_id
+        tests:
+          - not_null
+          - unique
+  - name: stg_listings
+    columns:
+      - name: listing_id
+        tests:
+          - not_null
+          - unique
