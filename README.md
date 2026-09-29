@@ -28,7 +28,6 @@ source(airbnb_source) ──▶ staging (bronze) ──▶ intermediate (silver)
 dbt_airbnb_case/
 ├── analyses/              # Ad-hoc analysis SQL (not materialized)
 ├── macros/                # Custom macros
-│   ├── clean_string.sql       # String cleaning (trim + uppercase)
 │   ├── multiply.sql           # Multiply two numbers and round
 │   ├── schema.sql             # Custom schema naming logic
 │   └── tag.sql                # Bucket numeric values into tags
@@ -50,7 +49,6 @@ dbt_airbnb_case/
 │   ├── dim_hosts_snapshot.sql
 │   └── dim_listings_snapshot.sql
 ├── tests/                    # Custom data tests
-│   └── source_test.sql
 ├── dbt_project.yml
 └── packages.yml
 
@@ -195,7 +193,6 @@ All three intermediate models use `materialized='incremental'` with `unique_key`
 
 | Macro | Purpose |
 | --- | --- |
-| `clean_string(column_name)` | Trims a string column and converts it to uppercase |
 | `multiply_and_round(col1, col2, precision=2)` | Multiplies two columns and rounds to the given precision |
 | `tag_col(col)` | Buckets a numeric column into tags: `<100` → `low`, `<200` → `medium`, else → `high` |
 | `generate_schema_name(custom_schema_name, node)` | Overrides dbt's default schema naming so models use their configured `schema` directly, without prefixing the target schema |
