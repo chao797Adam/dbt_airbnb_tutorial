@@ -1,4 +1,8 @@
+# dbt Airbnb Case
 
+A layered Airbnb data modeling project built with [dbt](https://www.getdbt.com/) on Databricks. It demonstrates an end-to-end pipeline from raw source data to analytics-ready mart tables, covering **incremental loads, snapshot-based history tracking, custom macros, and data tests**.
+
+---
 
 ## 📐 Data Layer Architecture
 
