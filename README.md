@@ -13,7 +13,7 @@ The project follows a **source / bronze / silver / gold** architecture, mapped t
 | Source (Raw) | — | `source` | — | Raw data landed by Auto Loader from CSV volumes. All columns are strings; includes `_rescued_data`, `ingested_at`, `source_file` |
 | Bronze (Staging) | `models/staging` | `bronze` | `incremental` | Type casting, column standardization. Incrementally loaded by `ingested_at`; deduplicated by `row_number()` on the primary key |
 | Silver (Intermediate) | `models/intermediate` | `silver` | `incremental` + `merge` | Business-level cleaning, derived fields, and tagging |
-| Gold (Serving) | `models/mart` | `gold` | `view` / `table` | Analytics-ready fact tables and one-big-table (OBT) |
+| Gold (Serving) | `models/mart` | `gold` | `table` / `table` | Analytics-ready fact tables and one-big-table (OBT) |
 
 
 ```
