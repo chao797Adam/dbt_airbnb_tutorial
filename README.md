@@ -325,8 +325,6 @@ However, the source data definition does not make it clear whether `booking_amou
 
 ## 📚 References
 
-- [dbt Documentation](https://docs.getdbt.com/docs/introduction)
-- [dbt-databricks Adapter Setup](https://docs.getdbt.com/reference/warehouse-setups/databricks-setup)
-- [dbt_utils Package](https://github.com/dbt-labs/dbt-utils)
+- [dbt Incremental models in-depth](https://docs.getdbt.com/best-practices/materializations/4-incremental-models?version=2)
 - [Reference tutorial](https://www.youtube.com/watch?v=3SZSDKEZaoA&t=19255s)
 ```
