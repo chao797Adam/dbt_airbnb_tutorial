@@ -261,7 +261,7 @@ Precedence (highest to lowest):
 
 ## ⚠️ Notes & Deviations from the Reference Tutorial
 
-This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, three issues in the reference video were identified and handled differently in this project:
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, four issues in the reference video were identified and handled differently in this project:
 
 ### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
 
@@ -286,7 +286,50 @@ In production pipelines, the correct approach is to use:
 
 This project uses `ingested_at` as the incremental filter in staging models, and the snapshots use `strategy: check` (comparing column values directly) rather than relying on a potentially unreliable timestamp from the source. The `check` strategy is more robust when source systems do not provide a trustworthy `updated_at` field.
 
-### 3. Ambiguity in `booking_amount` vs. `total_amount`
+### 3. No dedup step (`qualify row_number()`), and a manual flag instead of `is_incremental()`
+
+The reference tutorial's Bronze models run as `incremental` with a
+`unique_key`-equivalent merge, gated by a hand-set variable rather than
+dbt's built-in `is_incremental()`, and include no dedup step before the
+final `SELECT`:
+
+```sql
+{% set incremental_flag = 1 %}
+{% set incremental_col = 'CREATED_AT' %}
+
+SELECT * FROM {{ source('staging', 'listings') }}
+
+{% if incremental_flag == 1 %}
+    WHERE {{ incremental_col }} > (SELECT COALESCE(MAX({{ incremental_col }}), '1900-01-01') FROM {{ ref('bronze_listings') }})
+{% endif %}
+```
+
+**No dedup.** There's no `qualify row_number() = 1` (or equivalent)
+anywhere in this model. `MERGE` requires the incoming batch to contain at
+most one row per key — if the same `listing_id` appears twice in one
+incremental window (for any reason: a duplicate row in the source, two
+loads landing in the same batch, etc.), the `MERGE` fails outright. The
+tutorial's own dataset apparently never triggers this, which only means the
+dataset happens not to contain a within-batch duplicate — not that the
+model is safe against one. Every incremental model in this project ends
+with an explicit
+`qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`
+for this reason.
+
+**Manual flag instead of `is_incremental()`.** `incremental_flag` is
+hardcoded to `1` rather than using dbt's built-in `is_incremental()`, which
+automatically resolves to `false` the first time a model is built (or on
+`--full-refresh`) and `true` on every subsequent run. With the flag
+hardcoded to `1`, the `WHERE` clause — which references
+`{{ ref('bronze_listings') }}`, i.e. the model's own target table — runs
+unconditionally, including on the very first build, before that table
+exists. `is_incremental()` exists specifically to make this distinction
+correctly and automatically; a manual flag has to be remembered and toggled
+by hand, and defaults to the wrong answer (`1`, i.e. "assume the table
+already exists") in the one case where getting it wrong breaks the build
+outright.
+
+### 4. Ambiguity in `booking_amount` vs. `total_amount`
 
 In `silver_bookings.sql`:
 
