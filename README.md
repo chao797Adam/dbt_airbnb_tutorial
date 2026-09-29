@@ -355,6 +355,7 @@ However, the source data definition does not make it clear whether `booking_amou
 ## 📚 References
 
 * [dbt Documentation](https://docs.getdbt.com/docs/introduction)
+* [dbt About incremental strategy](https://docs.getdbt.com/docs/build/incremental-strategy?version=2)
 * [Reference tutorial](https://www.youtube.com/watch?v=3SZSDKEZqoA&t=19255s)
 
 
