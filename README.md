@@ -261,7 +261,7 @@ Precedence (highest to lowest):
 
 ## ⚠️ Notes & Deviations from the Reference Tutorial
 
-This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, four issues in the reference video were identified and handled differently in this project:
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, three issues in the reference video were identified and handled differently in this project:
 
 ### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
 
@@ -269,67 +269,45 @@ In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_b
 
 In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` enforced as the unique/incremental key at every layer.
 
-### 2. Use of `created_at` as snapshot timestamp — not production-grade
+### 2. Incremental/snapshot design gaps: `created_at` as the cursor, and no dedup before `MERGE`
 
-In the reference tutorial, the snapshot strategy uses `created_at` as the `updated_at` column for the `timestamp` strategy:
-
-```yaml
-strategy: timestamp
-updated_at: created_at
-```
-
-This is problematic in a real-world context. `created_at` is a **write-once** field — it records when the record was first inserted and never changes. Using it as the snapshot trigger means dbt will **never detect any updates** to an existing row, because the timestamp never moves forward. The snapshot would only capture new inserts, completely missing the SCD2 goal of tracking changes over time.
-
-In production pipelines, the correct approach is to use:
-- `ingested_at` — the timestamp when the record was last loaded into the data platform (updated on every reload by the ingestion layer)
-- `updated_at` — the timestamp from the source system recording when the record was last modified
-
-This project uses `ingested_at` as the incremental filter in staging models, and the snapshots use `strategy: check` (comparing column values directly) rather than relying on a potentially unreliable timestamp from the source. The `check` strategy is more robust when source systems do not provide a trustworthy `updated_at` field.
-
-### 3. No dedup step (`qualify row_number()`), and a manual flag instead of `is_incremental()`
-
-The reference tutorial's Bronze models run as `incremental` with a
-`unique_key`-equivalent merge, gated by a hand-set variable rather than
-dbt's built-in `is_incremental()`, and include no dedup step before the
-final `SELECT`:
+The reference tutorial's incremental models — correctly gated with dbt's
+built-in `is_incremental()` — still have two gaps that only surface once the
+underlying data isn't as clean as the tutorial's own dataset:
 
 ```sql
-{% set incremental_flag = 1 %}
-{% set incremental_col = 'CREATED_AT' %}
+{{ config(materialized='incremental') }}
 
-SELECT * FROM {{ source('staging', 'listings') }}
+SELECT * FROM {{ source('staging', 'hosts') }}
 
-{% if incremental_flag == 1 %}
-    WHERE {{ incremental_col }} > (SELECT COALESCE(MAX({{ incremental_col }}), '1900-01-01') FROM {{ ref('bronze_listings') }})
+{% if is_incremental() %}
+    WHERE CREATED_AT > (SELECT COALESCE(MAX(CREATED_AT), '1900-01-01') FROM {{ this }})
 {% endif %}
 ```
 
-**No dedup.** There's no `qualify row_number() = 1` (or equivalent)
-anywhere in this model. `MERGE` requires the incoming batch to contain at
-most one row per key — if the same `listing_id` appears twice in one
-incremental window (for any reason: a duplicate row in the source, two
-loads landing in the same batch, etc.), the `MERGE` fails outright. The
-tutorial's own dataset apparently never triggers this, which only means the
-dataset happens not to contain a within-batch duplicate — not that the
-model is safe against one. Every incremental model in this project ends
-with an explicit
+**`CREATED_AT` as the incremental cursor.** `created_at` is a **write-once**
+field — it's set when a row is first inserted and never changes. Using it
+as the cursor for `WHERE`, or as the `updated_at` column in a snapshot's
+`timestamp` strategy (the tutorial does both), means dbt can only ever
+detect *new* rows, never *updated* ones — the value it's comparing against
+simply never moves for a row that already exists. This project uses
+`ingested_at` (stamped at ingestion time, refreshed on every reload) as the
+incremental cursor in staging, and `strategy: check` (comparing column
+values directly, not a timestamp) for snapshots — more robust when the
+source doesn't provide a trustworthy `updated_at`.
+
+**No dedup before `MERGE`.** Neither this model nor its siblings include a
+`qualify row_number() = 1` (or equivalent) before the final `SELECT`.
+`MERGE` requires the incoming batch to contain at most one row per key — if
+the same key appears twice in one incremental window, the `MERGE` fails
+outright. The tutorial's own dataset apparently never triggers this, which
+only shows the dataset doesn't happen to contain a within-batch duplicate —
+not that the model is safe against one. Every incremental model in this
+project ends with an explicit
 `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`
 for this reason.
 
-**Manual flag instead of `is_incremental()`.** `incremental_flag` is
-hardcoded to `1` rather than using dbt's built-in `is_incremental()`, which
-automatically resolves to `false` the first time a model is built (or on
-`--full-refresh`) and `true` on every subsequent run. With the flag
-hardcoded to `1`, the `WHERE` clause — which references
-`{{ ref('bronze_listings') }}`, i.e. the model's own target table — runs
-unconditionally, including on the very first build, before that table
-exists. `is_incremental()` exists specifically to make this distinction
-correctly and automatically; a manual flag has to be remembered and toggled
-by hand, and defaults to the wrong answer (`1`, i.e. "assume the table
-already exists") in the one case where getting it wrong breaks the build
-outright.
-
-### 4. Ambiguity in `booking_amount` vs. `total_amount`
+### 3. Ambiguity in `booking_amount` vs. `total_amount`
 
 In `silver_bookings.sql`:
 
