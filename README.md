@@ -355,7 +355,7 @@ However, the source data definition does not make it clear whether `booking_amou
 ## 📚 References
 
 * [dbt Documentation](https://docs.getdbt.com/docs/introduction)
-* [Reference tutorial](https://www.youtube.com/watch%3Fv%3D3SZSDKEZqoA%26t%3D19255s)
+* [Reference tutorial](https://www.youtube.com/watch?v=3SZSDKEZqoA&t=19255s)
 
 
 
