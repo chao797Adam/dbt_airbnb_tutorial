@@ -354,10 +354,10 @@ However, the source data definition does not make it clear whether `booking_amou
 
 ## 📚 References
 
-* [dbt Documentation](https://www.google.com/search?q=https://docs.getdbt.com/docs/introduction)
-* [dbt-databricks Adapter Setup](https://www.google.com/search?q=https://docs.getdbt.com/reference/warehouse-setups/databricks-setup)
-* [dbt_utils Package](https://www.google.com/search?q=https://github.com/dbt-labs/dbt-utils)
-* [Reference tutorial](https://www.google.com/search?q=https://www.youtube.com/watch%3Fv%3D3SZSDKEZqoA%26t%3D19255s)
+* [dbt Documentation](https://docs.getdbt.com/docs/introduction)
+* [dbt-databricks Adapter Setup](https://docs.getdbt.com/reference/warehouse-setups/databricks-setup)
+* [dbt_utils Package](https://github.com/dbt-labs/dbt-utils)
+* [Reference tutorial](https://www.youtube.com/watch%3Fv%3D3SZSDKEZqoA%26t%3D19255s)
 
 
 
