@@ -54,6 +54,20 @@ dbt_airbnb_case/
 └── packages.yml
 ```
 
+## 🧪 Incremental Load Test Data
+
+`dataset_incre_load/listing_incre2.csv` is a small sample file used to verify the incremental load behavior end-to-end. It contains two listings with a `created_at` timestamp that will be picked up by Auto Loader as new data.
+
+To reproduce the incremental test:
+
+1. Upload `listing_incre2.csv` into the source volume under a **new filename** (Auto Loader tracks files by path, not by content — reusing an existing filename will not be re-read).
+2. Run the Auto Loader ingestion notebook with `table_name = listings`.
+3. Run `dbt run --select stg_listings+` and `dbt snapshot`.
+4. Verify:
+   - `bronze.stg_listings` gains the two new rows with a fresh `ingested_at`.
+   - `snapshots.listings_snapshot` records a new historical version for each changed `listing_id`.
+   - `gold.obt` keeps `booking_id` unique.
+
 ---
 
 ## 🗄️ Source
