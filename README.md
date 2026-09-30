@@ -38,10 +38,12 @@ dbt_airbnb_case/
 │   │   ├── stg_hosts.sql
 │   │   └── stg_listings.sql
 │   ├── intermediate/       # Silver layer
+│   │   ├── properties.yml      # Tests / descriptions for silver models
 │   │   ├── silver_bookings.sql
 │   │   ├── silver_hosts.sql
 │   │   └── silver_listings.sql
 │   └── mart/                # Gold layer
+│       ├── properties.yml      # Tests / descriptions for mart models
 │       ├── gold_fact_bookings.sql
 │       └── obt.sql              # One Big Table
 ├── snapshots/               # SCD2 historical snapshots
@@ -213,13 +215,20 @@ Snapshots read from `silver_hosts` and `silver_listings`, both of which are dedu
 
 ## ✅ Data Tests
 
-Generic tests are declared in `models/staging/properties.yml`:
+Generic tests are declared at every layer, all keyed on the natural primary key of each model:
 
-| Model | Column | Tests |
-|-------|--------|-------|
-| `stg_bookings` | `booking_id` | `not_null`, `unique` |
-| `stg_hosts` | `host_id` | `not_null`, `unique` |
-| `stg_listings` | `listing_id` | `not_null`, `unique` |
+| Layer | Model | Column | Tests |
+|-------|-------|--------|-------|
+| Staging | `stg_bookings` | `booking_id` | `not_null`, `unique` |
+| Staging | `stg_hosts` | `host_id` | `not_null`, `unique` |
+| Staging | `stg_listings` | `listing_id` | `not_null`, `unique` |
+| Intermediate | `silver_bookings` | `booking_id` | `not_null`, `unique` |
+| Intermediate | `silver_hosts` | `host_id` | `not_null`, `unique` |
+| Intermediate | `silver_listings` | `listing_id` | `not_null`, `unique` |
+| Mart | `gold_fact_bookings` | `booking_id` | `not_null`, `unique` |
+| Mart | `obt` | `booking_id` | `not_null`, `unique` |
+
+Key-uniqueness tests are especially important at the mart layer. `gold_fact_bookings` and `obt` are built from joins, and any join that is not strictly many-to-one will silently multiply rows — the `unique` test catches this immediately.
 
 The `dbt_utils` package (declared in `packages.yml`, version `1.3.3`) is also available and can be used to add generic tests (e.g., `unique`, `not_null`, `relationships`) to each model.
 
@@ -309,6 +318,10 @@ project ends with an explicit
 `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`
 for this reason.
 
+**And no tests to catch it.** The reference tutorial's `obt` model and its other marts do not include a `unique` test on `booking_id`. Without dedup and without a test, duplicate rows stay invisible — the pipeline runs green, and the error only surfaces when downstream aggregations produce inflated numbers.
+
+This project adds a `unique` + `not_null` test on the primary key of every staging, intermediate, and mart model. Running `select booking_id, count(*) from obt group by 1 having count(*) > 1` against the reference tutorial's `obt` returns rows; against this project's `obt`, it returns zero rows. The test is what makes the guarantee explicit and regression-proof.
+
 ### 3. Ambiguity in `booking_amount` vs. `total_amount`
 
 In `silver_bookings.sql`:
@@ -325,7 +338,7 @@ The current implementation assumes `booking_amount` is a per-night rate, consist
 
 ### 4. Snapshot source chosen for key uniqueness
 
-The reference tutorial snapshots from `obt`, a wide join across bookings, listings, and hosts. Because `obt` is at booking × listing × host grain, a single `booking_id` can appear multiple times — which makes it unsafe as a snapshot source. Snapshot sources must have exactly one row per `unique_key`; duplicate keys do not raise an error, they silently expand into spurious historical versions.
+The reference tutorial snapshots from `obt`, a wide join across bookings, listings, and hosts. The join chain itself is many-to-one and would not fan out on its own — but the tutorial does not dedupe the source tables before joining, so `obt` ends up with multiple rows per `booking_id`. A snapshot source must have exactly one row per `unique_key`; duplicate keys do not raise an error, they silently expand into spurious historical versions.
 
 This project snapshots from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer and therefore guaranteed key-unique at the time of snapshot.
 
