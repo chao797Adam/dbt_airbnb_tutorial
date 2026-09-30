@@ -358,8 +358,21 @@ This project snapshots from `silver_hosts` and `silver_listings`, both of which 
 
 ---
 
+## 🧬 DLT Re-implementation
+
+A parallel implementation of the same pipeline using **Databricks Lakeflow Declarative Pipelines (DLT)** lives in `dlt_airbnb_pipeline/`. It reads from the same `dbt_airbnb.source.*` tables, so the two pipelines can be compared on identical input.
+
+| Layer | dbt | DLT |
+|---|---|---|
+| Bronze | `stg_*` (dedup + cast) | `bronze_*` (cast only, no dedup) |
+| Silver | `silver_*` (dedup + business logic) | `silver_*` (CDC via `create_auto_cdc_flow`) |
+| Gold | `gold_*`, `obt`, snapshots | `dim_*`, `gold_*`, `obt` |
+
+**Key difference:** dbt deduplicates at both staging and silver layers — every physical table is guaranteed key-unique before it feeds the next layer. DLT deduplicates only at the silver layer via `create_auto_cdc_flow`, which merges the bronze event stream into a key-unique current state. Both produce the same result on the same source data; the difference is where the uniqueness guarantee lives.
+
+Data quality expectations are declared with `@dlt.expect` in DLT and `dbt test` in dbt. Note that `@dlt.expect` is row-level only — it cannot express global uniqueness (`unique` in dbt). In DLT, uniqueness is enforced structurally by the CDC flow rather than verified by a test.
+
 ## 📚 References
 
 - [dbt Incremental models in-depth](https://docs.getdbt.com/best-practices/materializations/4-incremental-models?version=2)
 - [Reference tutorial](https://www.youtube.com/watch?v=3SZSDKEZaoA&t=19255s)
-```
