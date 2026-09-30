@@ -225,7 +225,7 @@ The `dbt_utils` package (declared in `packages.yml`, version `1.3.3`) is also av
 
 Models can accept parameters through dbt's `var()` function, so the same SQL file can produce different results without editing code.
 
-Example:
+Example (as a scratch test under `analyses/`, not part of any production model):
 
 ```jinja
 {% set min_nights = var('min_nights', 1) %}
@@ -319,7 +319,7 @@ This calculation assumes `booking_amount` represents a **per-night rate**, and d
 
 However, the source data definition does not make it clear whether `booking_amount` is already the **total price for the booking** (i.e., already aggregated across `nights_booked`) or a per-night rate similar to `price_per_night` in the listings table. If `booking_amount` is already a total, then multiplying it by `nights_booked` again would double-count the duration and significantly overstate `total_amount` / revenue.
 
-**Open question / recommendation:** confirm the semantics of `booking_amount` with the source system or data owner before relying on `total_amount` for downstream reporting. The current implementation assumes `booking_amount` is a per-night rate (consistent with the naming pattern of `price_per_night`), but this should be validated against real source data rather than assumed.
+The current implementation assumes `booking_amount` is a per-night rate, consistent with the naming pattern of `price_per_night`. If it is instead the already-aggregated total for the booking, `total_amount` would overstate revenue by a factor of `nights_booked`. Downstream consumers of `total_amount` should treat this assumption as unverified until the source schema is confirmed.
 
 ---
 
