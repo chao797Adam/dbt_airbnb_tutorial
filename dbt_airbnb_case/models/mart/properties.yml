@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: obt
+    columns:
+      - name: booking_id
+        tests:
+          - not_null
+          - unique
+
+  - name: gold_fact_bookings
+    columns:
+      - name: booking_id
+        tests:
+          - not_null
+          - unique
