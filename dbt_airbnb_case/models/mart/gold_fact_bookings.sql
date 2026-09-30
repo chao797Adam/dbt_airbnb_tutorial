@@ -12,6 +12,7 @@ select
     b.booking_date,
     b.total_amount,
     b.booking_status,
+    b.created_at as booking_created_at,
     b.ingested_at as last_sync_time
 from {{ ref('silver_bookings') }} b
 left join {{ ref('silver_listings') }} l on b.listing_id = l.listing_id

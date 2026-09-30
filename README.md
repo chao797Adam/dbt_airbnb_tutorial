@@ -182,6 +182,8 @@ All three intermediate models use `materialized='incremental'` with `unique_key`
 | `gold_fact_bookings` | `table` | Booking fact table, joined with listing dimensions (city, property type) |
 | `obt` | `table` | One Big Table combining all fields from Bookings, Listings, and Hosts for BI/analytics |
 
+The join chain follows the Airbnb entity model: `host (1) → listing (many) → booking (many)`. Each hop is many-to-one, so the resulting grain stays at one row per booking.
+
 ---
 
 ## 🛠️ Custom Macros
@@ -204,6 +206,8 @@ Used to track historical changes (SCD Type 2) for dimension data, stored in the 
 | `listings_snapshot` | `silver_listings` | `check` | `price_per_night`, `price_per_night_tag`, `room_type`, `bedrooms`, `bathrooms`, `accommodates`, `city`, `country` |
 
 > ⚠️ Note: the project-level default snapshot strategy in `dbt_project.yml` is `timestamp` (based on `updated_at`/`ingested_at`), but both snapshot files explicitly set `strategy='check'`, which overrides the project default.
+
+Snapshots read from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer using `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`. This guarantees that the snapshot source has exactly one row per key — a requirement for `strategy: check` snapshots, since duplicate keys in the source would silently produce spurious historical versions rather than raising an error.
 
 ---
 
@@ -318,6 +322,12 @@ This calculation assumes `booking_amount` represents a **per-night rate**, and d
 However, the source data definition does not make it clear whether `booking_amount` is already the **total price for the booking** (i.e., already aggregated across `nights_booked`) or a per-night rate similar to `price_per_night` in the listings table. If `booking_amount` is already a total, then multiplying it by `nights_booked` again would double-count the duration and significantly overstate `total_amount` / revenue.
 
 The current implementation assumes `booking_amount` is a per-night rate, consistent with the naming pattern of `price_per_night`. If it is instead the already-aggregated total for the booking, `total_amount` would overstate revenue by a factor of `nights_booked`. Downstream consumers of `total_amount` should treat this assumption as unverified until the source schema is confirmed.
+
+### 4. Snapshot source chosen for key uniqueness
+
+The reference tutorial snapshots from `obt`, a wide join across bookings, listings, and hosts. Because `obt` is at booking × listing × host grain, a single `booking_id` can appear multiple times — which makes it unsafe as a snapshot source. Snapshot sources must have exactly one row per `unique_key`; duplicate keys do not raise an error, they silently expand into spurious historical versions.
+
+This project snapshots from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer and therefore guaranteed key-unique at the time of snapshot.
 
 ---
 
