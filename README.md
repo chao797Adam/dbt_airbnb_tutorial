@@ -271,9 +271,7 @@ In this project, bookings are consistently modeled as a fact table (`stg_booking
 
 ### 2. Incremental/snapshot design gaps: `created_at` as the cursor, and no dedup before `MERGE`
 
-The reference tutorial's incremental models — correctly gated with dbt's
-built-in `is_incremental()` — still have two gaps that only surface once the
-underlying data isn't as clean as the tutorial's own dataset:
+The reference tutorial's incremental models use `is_incremental()` correctly, but two design gaps remain. Both only surface once the underlying data stops being as clean as the tutorial's own dataset:
 
 ```sql
 {{ config(materialized='incremental') }}
