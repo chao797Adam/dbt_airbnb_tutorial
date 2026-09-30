@@ -274,7 +274,7 @@ Precedence (highest to lowest):
 
 ## ⚠️ Notes & Deviations from the Reference Tutorial
 
-This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, three issues in the reference video were identified and handled differently in this project:
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, four issues in the reference video were identified and handled differently in this project:
 
 ### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
 
