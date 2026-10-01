@@ -225,6 +225,26 @@ Used to track historical changes (SCD Type 2) for dimension data, stored in the 
 
 Snapshots read from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer using `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`. This guarantees that the snapshot source has exactly one row per key — a requirement for `strategy: check` snapshots, since duplicate keys in the source would silently produce spurious historical versions rather than raising an error.
 
+Snapshotting directly from `source` was considered and rejected, for two
+independent reasons:
+
+1. **Schema.** Every column in `source` is a raw `string` (see
+   [Data Layer Architecture](#-data-layer-architecture)) — `response_rate`
+   is a string, not a number, and derived fields like `response_rate_tag`
+   don't exist yet at this layer. `check_cols` would be comparing the wrong
+   representation of the data, or comparing against a column that isn't
+   there.
+2. **Uniqueness.** `source` permits duplicate `host_id`/`listing_id` within
+   a batch — Auto Loader does no deduplication (see
+   [Bronze Ingestion](#-bronze-ingestion-auto-loader-notebook)). A snapshot
+   source needs exactly one row per key; duplicates here don't error, they
+   silently expand into spurious historical versions (see
+   [Snapshot source chosen for key uniqueness](#4-snapshot-source-chosen-for-key-uniqueness)).
+
+Both problems are already solved by the time data reaches `silver_*` — cast
+to proper types, business fields derived, and deduplicated via
+`qualify row_number() = 1` — which is why snapshots read from there instead.
+
 ---
 
 ## ✅ Data Tests
