@@ -321,8 +321,6 @@ Both problems are already solved by the time data reaches `silver_*` — cast
 to proper types, business fields derived, and deduplicated via
 `qualify row_number() = 1` — which is why snapshots read from there instead.
 
----
-
 ## ✅ Data Tests
 
 Generic tests are declared at every layer, all keyed on the natural primary key of each model:
@@ -341,6 +339,14 @@ Generic tests are declared at every layer, all keyed on the natural primary key 
 Key-uniqueness tests are especially important at the mart layer. `gold_fact_bookings` and `obt` are built from joins, and any join that is not strictly many-to-one will silently multiply rows — the `unique` test catches this immediately.
 
 The `dbt_utils` package (declared in `packages.yml`, version `1.3.3`) is also available and can be used to add generic tests (e.g., `unique`, `not_null`, `relationships`) to each model.
+
+### 🚨 Singular Test (Warn Severity)
+
+In addition to generic tests (which fail the pipeline with an `ERROR`), we created a custom singular test (`tests/source_test.sql`) to flag bookings with `booking_amount < 200`. By setting `severity: 'warn'`, it acts as a monitoring alert rather than a hard pipeline blocker.
+
+**Terminal output:** 
+`Got 286 results, configured to warn if != 0. Done. PASS=0 WARN=1 ERROR=0` 
+— This proves the test successfully intercepted 286 anomalous (but potentially valid) records without crashing the DAG.
 
 ### 🛡️ Proof of No Fan-Out (Row Count Consistency)
 
