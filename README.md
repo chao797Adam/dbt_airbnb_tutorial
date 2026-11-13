@@ -401,27 +401,11 @@ SELECT * FROM {{ source('staging', 'hosts') }}
 {% endif %}
 ```
 
-**`CREATED_AT` as the incremental cursor.** `created_at` is a **write-once**
-field — it's set when a row is first inserted and never changes. Using it
-as the cursor for `WHERE`, or as the `updated_at` column in a snapshot's
-`timestamp` strategy (the tutorial does both), means dbt can only ever
-detect *new* rows, never *updated* ones — the value it's comparing against
-simply never moves for a row that already exists. This project uses
-`ingested_at` (stamped at ingestion time, refreshed on every reload) as the
-incremental cursor in staging, and `strategy: check` (comparing column
-values directly, not a timestamp) for snapshots — more robust when the
-source doesn't provide a trustworthy `updated_at`.
+**`CREATED_AT` as the incremental cursor.** `created_at` is a **write-once** field — it's set when a row is first inserted and never changes. Using it as the cursor for `WHERE`, or as the `updated_at` column in a snapshot's `timestamp` strategy (the tutorial does both), means dbt can only ever detect *new* rows, never *updated* ones — the value it's comparing against simply never moves for a row that already exists. 
 
-**No dedup before `MERGE`.** Neither this model nor its siblings include a
-`qualify row_number() = 1` (or equivalent) before the final `SELECT`.
-`MERGE` requires the incoming batch to contain at most one row per key — if
-the same key appears twice in one incremental window, the `MERGE` fails
-outright. The tutorial's own dataset apparently never triggers this, which
-only shows the dataset doesn't happen to contain a within-batch duplicate —
-not that the model is safe against one. Every incremental model in this
-project ends with an explicit
-`qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`
-for this reason.
+**Trade-off: Using `ingested_at` due to source limitations.** The raw CSV data does not provide a reliable `updated_at` column. Therefore, this project uses `ingested_at` (stamped at ingestion time, refreshed on every reload) as the incremental cursor in staging. This is a pragmatic compromise: while it may miss late-arriving updates (if the upstream system doesn't re-drop the file), it successfully captures updated rows that `created_at` would miss. We combine this with `strategy: check` (comparing column values directly, not a timestamp) for snapshots — which is far more robust when the source lacks a trustworthy timestamp.
+
+**No dedup before `MERGE`.** Neither this model nor its siblings include a `qualify row_number() = 1` (or equivalent) before the final `SELECT`. `MERGE` requires the incoming batch to contain at most one row per key — if the same key appears twice in one incremental window, the `MERGE` fails outright. The tutorial's own dataset apparently never triggers this, which only shows the dataset doesn't happen to contain a within-batch duplicate — not that the model is safe against one. Every incremental model in this project ends with an explicit `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1` for this reason.
 
 **And no tests to catch it.** The reference tutorial's `obt` model and its other marts do not include a `unique` test on `booking_id`. Without dedup and without a test, duplicate rows stay invisible — the pipeline runs green, and the error only surfaces when downstream aggregations produce inflated numbers.
 
