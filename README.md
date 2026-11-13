@@ -218,7 +218,16 @@ Checkpoints and schema files are stored under `/Volumes/dbt_airbnb/bronze/bronze
 
 ### Staging (Bronze)
 
-Upon initial ingestion by Auto Loader, **every business column in the `source` schema lands as a `string`**. This is because the Auto Loader CSV reader defaults to string types to prevent ingestion failures due to unexpected data formats. It also appends metadata columns (`_rescued_data`, `ingested_at`, `source_file`).
+*(Note: The reference tutorial uses Snowflake, which relies on `CREATE STAGE`, `FILE FORMAT`, and `COPY INTO` to batch-load data. This project adapts the pipeline to Databricks, replacing those steps with **Auto Loader (cloudFiles)**.)*
+
+In the reference architecture, raw data resides in AWS S3 and is loaded into Snowflake via an IAM role integration. Because the dataset for this project is relatively small, we simplify the infrastructure by using the **Databricks Unity Catalog Volumes** as the direct landing zone, bypassing the need for external cloud storage configurations.
+
+With this Databricks implementation:
+- **Auto Loader** continuously and incrementally tracks new files in the Volume.
+- The `cloudFiles.schemaEvolutionMode = "rescue"` option acts as error handling. Instead of failing the load on a malformed row, Auto Loader captures mismatched or unparseable columns into a `_rescued_data` field.
+- By default, Auto Loader ingests all CSV columns as `string`. Therefore, the `stg_*` dbt models must explicitly cast these string fields into their proper data types.
+
+Upon initial ingestion by Auto Loader, **every business column in the `source` schema lands as a `string`**, alongside metadata columns (`_rescued_data`, `ingested_at`, `source_file`).
 
 You can inspect this raw state dynamically using a quick loop:
 
@@ -234,7 +243,7 @@ for t in tables:
 
 The `stg_*` models are responsible for transforming this raw landing data into a clean Bronze layer by:
 1. **Casting**: Converting all string columns into their proper types (`int`, `double`, `date`, `timestamp`).
-2. **Standardizing**: Excluding the Auto Loader metadata and retaining only the required business columns and audit fields.
+2. **Standardizing**: Excluding the Auto Loader metadata (like `_rescued_data`) and retaining only the required business columns and audit fields.
 3. **Deduplicating**: Using `qualify row_number() over (partition by <primary_key> order by ingested_at desc) = 1` to keep only the most recent version of each record.
 4. **Incremental Loading**: Filtering on `ingested_at` to process only new data. Each model deduplicates by its primary key using the aforementioned `qualify` clause.
 
@@ -245,7 +254,6 @@ The `stg_*` models are responsible for transforming this raw landing data into a
 | `stg_bookings` | `booking_id` | Booking records (nights booked, amounts, status) |
 
 **Incremental logic:** Each staging model filters on `ingested_at > (select coalesce(max(ingested_at), '1900-01-01') from {{ this }})` when running in incremental mode.
-
 
 ### Intermediate (Silver)
 
