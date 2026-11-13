@@ -84,34 +84,41 @@ Raw tables are written by an Auto Loader notebook into `dbt_airbnb.source.{table
 
 ## 📥 Bronze Ingestion (Auto Loader Notebook)
 
-Raw CSV files are loaded into the `source` schema via an Auto Loader notebook. The notebook is parameterized with a `table_name` widget, so the same notebook is reused for `bookings`, `listings`, and `hosts` — only the widget value changes between runs.
+Raw CSV files are loaded into the `source` schema via an Auto Loader notebook. The same core logic is used for manual executions and automated workflows.
 
-### Step 1 — Define and read the widget
+### Method 1: Manual Execution (Development)
+
+For local development or ad-hoc loads, use a single notebook. The notebook is parameterized with a widget, allowing you to manually select the target table before running.
+
+#### Step 1 — Define and read the widget
 
 ```python
-from pyspark.sql.functions import current_timestamp, col
-
-# 1. Define the widget — appears as a parameter at the top of the notebook
+# Define the widget — appears as a parameter at the top of the notebook
 dbutils.widgets.text("table_name", "", "Table Name")
 
-# 2. Read the widget value at runtime
+# Read the widget value at runtime
 table_name = dbutils.widgets.get("table_name").strip()
 
 print(f"=== Running Bronze ingestion stream for table: {table_name} ===")
 ```
 
-### Step 2 — Auto Loader stream into the source schema
+#### Step 2 — Execution (Read, Write, and Verify)
 
 ```python
+from pyspark.sql.functions import current_timestamp, col
+
+# 1. Auto Loader read stream (Input from source_data)
 df = spark.readStream.format("cloudFiles") \
     .option("cloudFiles.format", "csv") \
     .option("cloudFiles.schemaLocation", f"/Volumes/dbt_airbnb/bronze/bronzevolume/{table_name}/schema") \
     .option("cloudFiles.schemaEvolutionMode", "rescue") \
     .load(f"/Volumes/dbt_airbnb/source/source_data/{table_name}/")
 
+# 2. Add audit columns
 df = df.withColumn("ingested_at", current_timestamp()) \
        .withColumn("source_file", col("_metadata.file_path"))
 
+# 3. Delta write stream (Output to source schema, checkpoint to bronze volume)
 query = df.writeStream.format("delta") \
     .outputMode("append") \
     .trigger(once=True) \
@@ -120,6 +127,7 @@ query = df.writeStream.format("delta") \
 
 query.awaitTermination()
 
+# 4. Verify Metrics
 prog = query.lastProgress
 print(f"✅ batchId      : {prog.get('batchId') if prog else None}")
 
@@ -140,30 +148,71 @@ print(f"✅ operation            : {hist['operation']}")
 - **Audit columns:** `ingested_at` (processing timestamp) and `source_file` (origin file path) are appended to every row
 - **Trigger:** `once=True` — runs a single micro-batch and exits
 
-### Running the notebook
+---
 
-**Manual (for development / learning)**
+### Method 2: Automated Lakeflow Job (Production)
 
-Set the `table_name` widget to one of `bookings`, `listings`, `hosts`, and run the notebook once per table. Checkpoints and schema files are stored under `/Volumes/dbt_airbnb/bronze/bronzevolume/{table_name}/`.
+In production, the notebook is not run manually per table. It is orchestrated as a two-step **Databricks Workflow (Lakeflow Job)** using a **For each** task. This provides concurrent execution and isolated failure handling.
 
-**Production (Databricks Workflow with a For each task)**
+#### Task 1 Notebook: `get_tables` (Publish Table List)
 
-In production, the notebook is not run manually per table. It is orchestrated as a two-step Databricks Workflow:
-
-1. **Upstream task — publish the table list.** A small notebook emits the list of tables to ingest:
+A minimal notebook outputs the list of tables to ingest, which the downstream `For each` loop will consume.
 
 ```python
-table_list = ["bookings", "listings", "hosts"]
-dbutils.jobs.taskValues.set(key="table_list", value=table_list)
+# Define the tables to process
+tables = ["bookings", "listings", "hosts"]
+
+# Publish to task values for the For each loop
+dbutils.jobs.taskValues.set(key="tables", value=tables)
 ```
 
-2. **Downstream task — For each.** The Workflow uses a **For each** task that iterates over `table_list`. Each iteration runs the ingestion notebook defined in [Step 2 — Auto Loader stream into the source schema](#step-2--auto-loader-stream-into-the-source-schema), passing the current element as the `table_name` widget.
+#### Task 2 Notebook: `ingest_one` (Parameterized Ingestion)
 
-This keeps the ingestion notebook fully table-agnostic — it only knows the single `table_name` it receives — while the Workflow handles fan-out and concurrency. Adding a new source table is just a matter of appending its name to `table_list`.
+This notebook uses the same core logic as Method 1. However, the `table_name` is injected dynamically by the `For each` loop. *(Note: `trigger(availableNow=True)` is used here for modern workflow orchestration)*.
+
+```python
+from pyspark.sql.functions import current_timestamp, col
+
+# Define the widget to receive the loop input
+dbutils.widgets.text("table_name", "", "Table Name")
+table_name = dbutils.widgets.get("table_name").strip()
+
+print(f"=== Running Bronze ingestion stream for table: {table_name} ===")
+
+df = spark.readStream.format("cloudFiles") \
+    .option("cloudFiles.format", "csv") \
+    .option("cloudFiles.schemaLocation", f"/Volumes/dbt_airbnb/bronze/bronzevolume/{table_name}/schema") \
+    .option("cloudFiles.schemaEvolutionMode", "rescue") \
+    .load(f"/Volumes/dbt_airbnb/source/source_data/{table_name}/")
+
+df = df.withColumn("ingested_at", current_timestamp()) \
+       .withColumn("source_file", col("_metadata.file_path"))
+
+query = df.writeStream.format("delta") \
+    .outputMode("append") \
+    .trigger(availableNow=True) \
+    .option("checkpointLocation", f"/Volumes/dbt_airbnb/bronze/bronzevolume/{table_name}/checkpoint") \
+    .toTable(f"dbt_airbnb.source.{table_name}")
+
+query.awaitTermination()
+
+prog = query.lastProgress
+print(f"✅ {table_name}: batchId={prog.get('batchId') if prog else None}")
+```
+
+#### Workflow Configuration
+
+1. **Task 1:** Add a Notebook task pointing to `get_tables`.
+2. **Task 2:** Add a **For each** task.
+   - **Depends on:** `Task 1`
+   - **Inputs:** `{{tasks.get_tables.values.tables}}`
+   - **Nested Task:** Point to the `ingest_one` notebook.
+   - **Parameters:** Key = `table_name`, Value = `{{input}}`
+   - **Concurrency:** Set to `3` to run all tables in parallel.
+
+This keeps the ingestion notebook fully table-agnostic — it only knows the single `table_name` it receives — while the Workflow handles fan-out and concurrency. Adding a new source table is just a matter of appending its name to `tables` in Task 1.
 
 Checkpoints and schema files are stored under `/Volumes/dbt_airbnb/bronze/bronzevolume/{table_name}/`.
-
----
 
 ## 🧱 Models
 
