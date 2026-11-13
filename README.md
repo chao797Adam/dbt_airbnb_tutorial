@@ -426,11 +426,13 @@ dbt run --select stg_bookings --vars '{"min_nights": 3}'
 
 This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, four issues in the reference video were identified and handled differently in this project:
 
-### 1. Bookings modeled as a dimension, causing duplicate `booking_id`
+### 1. Bookings modeled as a dimension, causing severe Fan-out and duplicate `booking_id`
 
-In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_bookings` — i.e., treated as a **dimension table**. However, each row represents a discrete booking transaction, which makes bookings a **fact table** by nature (transactional grain, one row per business event). Modeling it as a dimension led to duplicate `booking_id` values downstream in the reference project.
+In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_bookings` — i.e., treated as a **dimension table**. However, each row represents a discrete booking transaction, which makes bookings a **fact table** by nature (transactional grain, one row per business event). 
 
-In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` enforced as the unique/incremental key at every layer.
+Because the tutorial lacks proper deduplication logic and misinterprets the grain, joining these tables causes a massive **Fan-out**. If you query the `FACT` table in the reference project, you will see the exact same `booking_id` (e.g., `ef0bd262...`) repeated multiple times, inflating the `total_amount` and completely destroying the accuracy of downstream aggregations.
+
+In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` strictly enforced as the unique/incremental key at every layer. We use `qualify row_number() = 1` to guarantee that one booking event equals exactly one row in the final table.
 
 ### 2. Incremental/snapshot design gaps: `created_at` as the cursor, and no dedup before `MERGE`
 
