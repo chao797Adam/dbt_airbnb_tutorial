@@ -54,19 +54,41 @@ dbt_airbnb_case/
 └── packages.yml
 ```
 
-## 🧪 Incremental Load Test Data
+## 🧪 Incremental Load & SCD2 Verification
 
-`dataset_incre_load/listing_incre2.csv` is a small sample file used to verify the incremental load behavior end-to-end. It contains two listings with a `created_at` timestamp that will be picked up by Auto Loader as new data.
+To prove that the pipeline correctly handles incremental loads, deduplication, and SCD Type 2 history tracking, we use a sample test dataset.
 
-To reproduce the incremental test:
+### Test Data
+We uploaded a new CSV file containing two rows to the source volume:
+```csv
+listing_id,host_id,property_type,room_type,city,country,accommodates,bedrooms,bathrooms,price_per_night,created_at
+1,150,House,Entire home,Melbourne,Australia,3,1,2,84,2025-12-26 14:15:54.011160
+501,91,Apartment,Private room,Sydney,Australia,1,2,3,140,2025-12-26 14:15:54.011160
+```
 
-1. Upload `listing_incre2.csv` into the source volume under a **new filename** (Auto Loader tracks files by path, not by content — reusing an existing filename will not be re-read).
-2. Run the Auto Loader ingestion notebook with `table_name = listings`.
-3. Run `dbt run --select stg_listings+` and `dbt snapshot`.
-4. Verify:
-   - `bronze.stg_listings` gains the two new rows with a fresh `ingested_at`.
-   - `snapshots.listings_snapshot` records a new historical version for each changed `listing_id`.
-   - `gold.obt` keeps `booking_id` unique.
+*(Note: Auto Loader tracks files by path, so this must be uploaded under a **new filename** to be picked up as new data).*
+
+### Verification Steps
+
+1. **Trigger Auto Loader:** Run the Databricks Workflow Job to ingest the new CSV. The `source.listings` table will gain these 2 new rows.
+2. **Run dbt models:** Execute `dbt run --select stg_listings+`. This will incrementally process the new data through Bronze, Silver, and Gold layers.
+3. **Run dbt Snapshot:** Execute `dbt snapshot` to update the SCD Type 2 history.
+
+### Expected Results
+
+By running a dynamic loop in Databricks to inspect the layers:
+```python
+tables = ["bronze.stg_listings", "silver.silver_listings", "snapshots.listings_snapshot"]
+for t in tables:
+    display(spark.sql(f"SELECT * FROM dbt_airbnb.{t} WHERE listing_id IN (1, 501)"))
+```
+
+- **Silver Layer (`silver_listings`)**: The record for `listing_id = 1` remains strictly **1 row**, updated with the latest data (e.g., `city = Melbourne`). The `qualify row_number() = 1` logic successfully prevented duplicates.
+- **Snapshot Table (`listings_snapshot`)**: The record for `listing_id = 1` now shows **2 rows** (SCD2):
+  - **Old Version:** The previous state (e.g., `city = West Lisafort`) with a populated `dbt_valid_to` timestamp.
+  - **New Version:** The updated state (`city = Melbourne`) with `dbt_valid_to = NULL` (current active record).
+
+This verifies that our pipeline can seamlessly ingest new data, maintain strict primary key uniqueness, and accurately track historical changes.
 
 ---
 
