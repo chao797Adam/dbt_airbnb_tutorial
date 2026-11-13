@@ -342,37 +342,32 @@ Key-uniqueness tests are especially important at the mart layer. `gold_fact_book
 
 The `dbt_utils` package (declared in `packages.yml`, version `1.3.3`) is also available and can be used to add generic tests (e.g., `unique`, `not_null`, `relationships`) to each model.
 
----
-
 ## 🔧 Using dbt vars
 
-Models can accept parameters through dbt's `var()` function, so the same SQL file can produce different results without editing code.
+Models can accept parameters through dbt's `var()` function, allowing the same SQL file to produce different results without editing the code.
 
-Example (as a scratch test under `analyses/`, not part of any production model):
+For example, to dynamically filter bookings at runtime, we can use a variable in a model (e.g., in `stg_bookings.sql`):
 
 ```jinja
-{% set min_nights = var('min_nights', 1) %}
 select *
 from {{ ref('stg_bookings') }}
-where nights_booked >= {{ min_nights }}
+where nights_booked >= {{ var('min_nights', 1) }}
 ```
 
 - If no value is passed, `min_nights` falls back to the default `1`.
-- To override it for a single run:
+- To override it for a single run, pass the variable via the command line:
 
 ```bash
 dbt run --select stg_bookings --vars '{"min_nights": 3}'
 ```
 
-Precedence (highest to lowest):
+**Precedence (highest to lowest):**
 
 | Source | Example |
 |---|---|
 | CLI `--vars` | `dbt run --vars '{"min_nights": 3}'` |
 | `dbt_project.yml` | `vars: { min_nights: 2 }` |
 | Model default | `var('min_nights', 1)` |
-
----
 
 ## 📦 Package Dependencies
 
