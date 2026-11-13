@@ -218,7 +218,25 @@ Checkpoints and schema files are stored under `/Volumes/dbt_airbnb/bronze/bronze
 
 ### Staging (Bronze)
 
-Casts raw string columns into proper types, standardizes column names, and incrementally loads new rows based on `ingested_at`. Each model deduplicates by its primary key using `qualify row_number() over (partition by ... order by ingested_at desc) = 1`.
+Upon initial ingestion by Auto Loader, **every business column in the `source` schema lands as a `string`**. This is because the Auto Loader CSV reader defaults to string types to prevent ingestion failures due to unexpected data formats. It also appends metadata columns (`_rescued_data`, `ingested_at`, `source_file`).
+
+You can inspect this raw state dynamically using a quick loop:
+
+```python
+tables = ["listings", "bookings", "hosts"]
+
+for t in tables:
+    print(f"\n{'='*20} {t} Schema {'='*20}")
+    display(spark.sql(f"DESCRIBE dbt_airbnb.source.{t}"))
+```
+
+*(Expected output: all data fields shown as `string`, alongside `ingested_at` and `source_file`.)*
+
+The `stg_*` models are responsible for transforming this raw landing data into a clean Bronze layer by:
+1. **Casting**: Converting all string columns into their proper types (`int`, `double`, `date`, `timestamp`).
+2. **Standardizing**: Excluding the Auto Loader metadata and retaining only the required business columns and audit fields.
+3. **Deduplicating**: Using `qualify row_number() over (partition by <primary_key> order by ingested_at desc) = 1` to keep only the most recent version of each record.
+4. **Incremental Loading**: Filtering on `ingested_at` to process only new data. Each model deduplicates by its primary key using the aforementioned `qualify` clause.
 
 | Model | Primary Key | Description |
 |-------|-------------|-------------|
@@ -226,7 +244,8 @@ Casts raw string columns into proper types, standardizes column names, and incre
 | `stg_hosts` | `host_id` | Host info (signup date, superhost flag, response rate) |
 | `stg_bookings` | `booking_id` | Booking records (nights booked, amounts, status) |
 
-**Incremental logic:** each staging model filters on `ingested_at > (select coalesce(max(ingested_at), '1900-01-01') from {{ this }})` when running in incremental mode.
+**Incremental logic:** Each staging model filters on `ingested_at > (select coalesce(max(ingested_at), '1900-01-01') from {{ this }})` when running in incremental mode.
+
 
 ### Intermediate (Silver)
 
