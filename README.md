@@ -476,6 +476,46 @@ The reference tutorial snapshots from `obt`, a wide join across bookings, listin
 
 This project snapshots from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer and therefore guaranteed key-unique at the time of snapshot.
 
+### 5. Hardcoding column lists in Jinja is a bad practice for OBTs
+
+The reference tutorial builds the `obt` dynamically using a Jinja `{% set configs = [...] %}` list with hardcoded column strings. In a real-world scenario with 100+ columns, this approach is extremely prone to human error (typos, missing fields, ambiguous join keys) and provides no IDE autocomplete or syntax highlighting.
+
+This project avoids this anti-pattern by writing explicit, standard `SELECT` statements. For an `obt` that joins multiple tables with overlapping column names (like `created_at`, `ingested_at`, `source_file`), explicitly aliasing them with table prefixes is the safest and most readable approach:
+
+```sql
+select
+    b.booking_id,
+    b.listing_id,
+    -- ...
+    b.created_at as booking_created_at,
+    b.ingested_at as booking_ingested_at,
+
+    l.property_type,
+    l.city,
+    -- ...
+    l.created_at as listing_created_at,
+    
+    h.host_name,
+    -- ...
+    h.created_at as host_created_at
+from {{ ref('silver_bookings') }} b
+left join {{ ref('silver_listings') }} l on b.listing_id = l.listing_id
+left join {{ ref('silver_hosts') }} h on l.host_id = h.host_id
+```
+
+**How we inspect wide tables before modeling:**
+To avoid guessing column names and to ensure 100% accuracy, we use a dynamic loop in Databricks to print the exact schema before writing the SQL:
+
+```python
+tables = ["listings", "bookings", "hosts"]
+
+for t in tables:
+    print(f"\n{'='*20} {t} Schema {'='*20}")
+    display(spark.sql(f"DESCRIBE dbt_airbnb.source.{t}"))
+```
+
+By inspecting the schema first and explicitly writing the `SELECT` statement, we guarantee that the `obt` is readable, maintainable, and completely free of column name collisions.
+
 ---
 
 ## 🧬 DLT Re-implementation
