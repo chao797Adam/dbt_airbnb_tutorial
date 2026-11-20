@@ -381,9 +381,9 @@ Data tests guarantee the logical uniqueness of primary keys. Beyond that, row co
 | Silver (Intermediate) | 5000 | 500 | 200 |
 | Gold (`obt`, `fct_bookings`) | 5000 | — | — |
 
-*(Note: The row counts remain perfectly flat from the source to the Gold layer. This proves that our `qualify row_number() = 1` deduplication and layered `unique` tests successfully prevent the join explosion.)*
+*(Note: The row counts remain flat from the source to the Gold layer, which shows that no fan-out occurs. The `qualify row_number() = 1` deduplication and the layered `unique` tests are what guarantee this if the source later contains duplicates, as in the 2-row test file above.)*
 
-**Why this matters:** If we followed the reference tutorial's approach (no deduplication before the `obt` join), the `Gold` layer row count for `bookings` would exceed 5000 due to duplicate `listing_id` rows in the source matching multiple times. Thanks to our strict deduplication at the Silver layer, the `left join` strictly operates on a many-to-one basis, keeping the final table exactly at 5000 rows.
+**Why this matters:** In the reference video, the `FACT` table shows repeated `booking_id` rows, so its row count exceeds the number of distinct bookings (see Note 1). In this project, deduplication at the Silver layer keeps every join many-to-one, and the final table stays at exactly 5000 rows.
 
 **Reproducible Verification**
 
@@ -458,7 +458,7 @@ This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](h
 
 In the reference tutorial (~5h20m mark), the bookings table is modeled as `dim_bookings` — i.e., treated as a **dimension table**. However, each row represents a discrete booking transaction, which makes bookings a **fact table** by nature (transactional grain, one row per business event). 
 
-Because the tutorial lacks proper deduplication logic and misinterprets the grain, joining these tables causes a massive **Fan-out**. If you query the `FACT` table in the reference project, you will see the exact same `booking_id` (e.g., `ef0bd262...`) repeated multiple times, inflating the `total_amount` and completely destroying the accuracy of downstream aggregations.
+In the reference video (~5h19m), the `FACT` table, which should have one row per booking, contains the same `booking_id` (e.g., `ef0bd262...`) on at least 11 rows with identical values. This is a fan-out that inflates `total_amount` in any aggregation. The video does not dedupe the source tables before joining, which is the likely cause.
 
 In this project, bookings are consistently modeled as a fact table (`stg_bookings` → `silver_bookings` → `gold_fact_bookings`), with `booking_id` strictly enforced as the unique/incremental key at every layer. We use `qualify row_number() = 1` to guarantee that one booking event equals exactly one row in the final table.
 
@@ -484,7 +484,7 @@ SELECT * FROM {{ source('staging', 'hosts') }}
 
 **And no tests to catch it.** The reference tutorial's `obt` model and its other marts do not include a `unique` test on `booking_id`. Without dedup and without a test, duplicate rows stay invisible — the pipeline runs green, and the error only surfaces when downstream aggregations produce inflated numbers.
 
-This project adds a `unique` + `not_null` test on the primary key of every staging, intermediate, and mart model. Running `select booking_id, count(*) from obt group by 1 having count(*) > 1` against the reference tutorial's `obt` returns rows; against this project's `obt`, it returns zero rows. The test is what makes the guarantee explicit and regression-proof.
+This project adds a `unique` + `not_null` test on the primary key of every staging, intermediate, and mart model. In the reference video, the `FACT` table shows repeated `booking_id` rows (see Note 1). In this project, `select booking_id, count(*) from obt group by 1 having count(*) > 1` returns zero rows, and the `unique` test is what makes that guarantee explicit and regression-proof.
 
 ### 3. Ambiguity in `booking_amount` vs. `total_amount`
 
