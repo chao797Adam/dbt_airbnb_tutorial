@@ -278,6 +278,53 @@ This design keeps the ingestion notebook **table-agnostic**, while the Lakeflow 
 
 Adding another source table only requires adding its name to the list in `get_tables`, provided the corresponding source files are available and compatible with the ingestion logic.
 
+### Architecture Comparison: AWS + Snowflake vs. Databricks
+
+The reference tutorial implements data ingestion using **AWS S3 + Snowflake**, while this project reimplements the same ingestion requirements using **Databricks Unity Catalog Volumes + Auto Loader + Lakeflow Jobs**.
+
+This provides a practical comparison of two approaches to ingesting source files before dbt transformations.
+
+| Component | Reference: AWS + Snowflake | This Project: Databricks |
+|---|---|---|
+| Raw File Storage | AWS S3 | Unity Catalog Volumes |
+| Storage Access | IAM Role + Storage Integration | Direct access through UC Volumes |
+| File Configuration | Snowflake Stage + File Format | Auto Loader `cloudFiles` options |
+| Schema Handling | Predefined target tables | Schema inference with `rescue` mode |
+| Data Ingestion | `COPY INTO` | `readStream` + `writeStream` |
+| Incremental File Tracking | Snowflake load metadata | Auto Loader checkpoints |
+| Orchestration | Not explicitly implemented in the reference ingestion steps | Lakeflow Jobs + For each |
+| Downstream Transformation | dbt on Snowflake | dbt on Databricks |
+
+**Key Observations**
+
+**1. Initial Setup Complexity**
+
+The reference implementation requires configuring AWS IAM permissions, Snowflake storage integration, stages, file formats, and target tables before executing `COPY INTO`.
+
+In this Databricks implementation, source CSV files are stored directly in Unity Catalog Volumes. Auto Loader handles schema inference and incremental file discovery, reducing the external integration setup required for this small project.
+
+**2. Reusable and Parameterized Ingestion**
+
+Instead of creating separate ingestion logic for each source table, this project uses one parameterized Auto Loader notebook.
+
+Lakeflow Jobs dynamically retrieves the table list through Task Values and executes the notebook using a For each task, allowing up to three concurrent ingestion iterations.
+
+**3. Separation of Responsibilities**
+
+The Databricks implementation separates ingestion from orchestration:
+
+- **Auto Loader:** Reads new source files and writes Delta tables.
+- **Lakeflow Jobs:** Manages task dependencies, parameter passing, and concurrent execution.
+- **dbt:** Performs Bronze, Silver, and Gold transformations.
+
+**Conclusion**
+
+For this small, multi-table project, Unity Catalog Volumes combined with Auto Loader and Lakeflow Jobs provides a convenient and reusable ingestion architecture.
+
+This comparison reflects the specific implementations used in the reference tutorial and this project, rather than a general claim that Databricks is superior to Snowflake. Snowflake also supports automated ingestion and schema inference through additional features such as Snowpipe.
+
+The key learning outcome is the ability to implement the same business data pipeline across different cloud data platforms while understanding their ingestion patterns, configuration requirements, and orchestration responsibilities.
+
 ## 🧱 Models
 
 ### Staging (Bronze)
