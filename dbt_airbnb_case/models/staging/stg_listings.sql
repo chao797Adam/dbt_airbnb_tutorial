@@ -29,4 +29,8 @@ with
     )
 select *
 from source
-qualify row_number() over (partition by listing_id order by ingested_at desc) = 1
+qualify
+    row_number() over (
+        partition by listing_id order by ingested_at desc, created_at desc
+    )
+    = 1
