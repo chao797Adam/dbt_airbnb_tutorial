@@ -410,7 +410,7 @@ Used to track historical changes (SCD Type 2) for dimension data, stored in the 
 
 > ⚠️ Note: the project-level default snapshot strategy in `dbt_project.yml` is `timestamp` (based on `updated_at`/`ingested_at`), but both snapshot files explicitly set `strategy='check'`, which overrides the project default.
 
-Snapshots read from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer using `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1`. This guarantees that the snapshot source has exactly one row per key — a requirement for `strategy: check` snapshots, since duplicate keys in the source would silently produce spurious historical versions rather than raising an error.
+Snapshots read from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer using `qualify row_number() over (partition by <primary_key> order by ingested_at desc) = 1`. This ensures that the snapshot source is key-unique when the Silver incremental models complete successfully and the uniqueness tests pass — a requirement for reliable `strategy: check` snapshots, since duplicate source keys can lead to incorrect or ambiguous historical records.
 
 Snapshotting directly from `source` was considered and rejected, for two
 independent reasons:
@@ -424,8 +424,7 @@ independent reasons:
 2. **Uniqueness.** `source` permits duplicate `host_id`/`listing_id` within
    a batch — Auto Loader does no deduplication (see
    [Bronze Ingestion](#-bronze-ingestion-auto-loader--lakeflow-job)). A snapshot
-   source needs exactly one row per key; duplicates here don't error, they
-   silently expand into spurious historical versions (see
+   source needs exactly one row per key; duplicate source keys can lead to incorrect or ambiguous snapshot history. (see
    [Snapshot source chosen for key uniqueness](#4-snapshot-source-chosen-for-key-uniqueness)).
 
 Both problems are already solved by the time data reaches `silver_*` — cast
@@ -502,7 +501,10 @@ UNION ALL
 SELECT 'fct_bookings' AS table_name, COUNT(*) AS total_rows FROM dbt_airbnb.gold.gold_fact_bookings;
 ```
 
-If the pipeline is built correctly, the row count for `bookings` should remain exactly **5000** across `source` → `stg_bookings` → `silver_bookings` → `obt` → `gold_fact_bookings`. Any deviation indicates a Fan-out issue.
+For the baseline dataset containing 5,000 unique bookings, the expected row count is exactly **5,000** across `source` → `stg_bookings` → `silver_bookings` → `obt` → `gold_fact_bookings`.
+
+Since the Gold models join bookings with listings and hosts, maintaining the same booking row count provides evidence that these joins do not introduce fan-out. This verification assumes no additional booking records have been ingested and no records have been filtered out.
+
 
 ## 🔧 Using dbt vars
 
@@ -541,7 +543,7 @@ dbt run --select stg_bookings --vars '{"min_nights": 3}'
 
 ## ⚠️ Notes & Deviations from the Reference Tutorial
 
-This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, four issues in the reference video were identified and handled differently in this project:
+This project was built while following [Ansh's AWS + Snowflake + dbt tutorial](https://github.com/anshumanmahapatra/aws_snowflake_dbt) (adapted here to run on Databricks). During implementation, five issues in the reference video were identified and handled differently in this project:
 
 ### 1. Bookings modeled as a dimension, causing severe Fan-out and duplicate `booking_id`
 
@@ -565,11 +567,25 @@ SELECT * FROM {{ source('staging', 'hosts') }}
 {% endif %}
 ```
 
-**`CREATED_AT` as the incremental cursor.** `created_at` is a **write-once** field — it's set when a row is first inserted and never changes. Using it as the cursor for `WHERE`, or as the `updated_at` column in a snapshot's `timestamp` strategy (the tutorial does both), means dbt can only ever detect *new* rows, never *updated* ones — the value it's comparing against simply never moves for a row that already exists. 
+**`CREATED_AT` as the incremental cursor.** `created_at` is a **write-once** field — it's set when a row is first inserted and never changes. Using it as the cursor for `WHERE`, or as the `updated_at` column in a snapshot's `timestamp` strategy (the tutorial does both), means dbt cannot reliably detect updates to existing rows when their created_at values remain unchanged. It may also miss late-arriving historical records.
 
-**Trade-off: Using `ingested_at` due to source limitations.** The raw CSV data does not provide a reliable `updated_at` column. Therefore, this project uses `ingested_at` (stamped at ingestion time, refreshed on every reload) as the incremental cursor in staging. This is a pragmatic compromise: while it may miss late-arriving updates (if the upstream system doesn't re-drop the file), it successfully captures updated rows that `created_at` would miss. We combine this with `strategy: check` (comparing column values directly, not a timestamp) for snapshots — which is far more robust when the source lacks a trustworthy timestamp.
+**Trade-off: Using `ingested_at` as an ingestion-based incremental watermark.**
 
-**No dedup before `MERGE`.** Neither this model nor its siblings include a `qualify row_number() = 1` (or equivalent) before the final `SELECT`. `MERGE` requires the incoming batch to contain at most one row per key — if the same key appears twice in one incremental window, the `MERGE` fails outright. The tutorial's own dataset apparently never triggers this, which only shows the dataset doesn't happen to contain a within-batch duplicate — not that the model is safe against one. Every incremental model in this project ends with an explicit `qualify row_number() over (partition by <primary key> order by ingested_at desc) = 1` for this reason.
+The source CSV files contain `created_at` but do not provide a reliable `updated_at` field. This creates an important distinction between identifying newly arrived data and identifying the latest business version of a record.
+
+The reference implementation uses `created_at` as its incremental watermark. While this works for strictly append-only data arriving in creation-time order, it can miss late-arriving historical records and updates to existing records whose `created_at` remains unchanged.
+
+In this project, Auto Loader adds an `ingested_at` timestamp when source files are ingested into Bronze. Downstream dbt incremental models use this timestamp to identify newly ingested records, regardless of their original creation dates. This allows late-arriving historical records and re-ingested updates to be processed, provided they receive a newer ingestion timestamp and pass the incremental watermark.
+
+However, **`ingested_at` represents ingestion order, not business update order**. If an older version of a record arrives after a newer version, using `ingested_at` to select the latest record may incorrectly overwrite the current business state. Additionally, changes that are never delivered to the ingestion layer cannot be detected.
+
+**Design decision:** Given the absence of a reliable source `updated_at` or CDC sequence number, this project prioritizes ingestion completeness over guaranteed business-version ordering. It uses `ingested_at` for incremental processing and `strategy: check` for dbt snapshots to detect changes in selected business attributes.
+
+This is a deliberate engineering trade-off rather than a complete solution to late-arriving updates. A production implementation would ideally use a reliable source modification timestamp or CDC sequence number to determine the latest business version, while retaining ingestion metadata to track newly arrived data.
+
+**No dedup before `MERGE`.** Neither this model nor its siblings include a `QUALIFY ROW_NUMBER() = 1` (or equivalent) before the final `SELECT`. Duplicate source keys can cause ambiguous matches during `MERGE`, potentially resulting in failures when multiple source rows match the same target row. Deduplicating the incoming batch ensures one source row per business key before the merge.
+
+Every incremental model in this project ends with an explicit `QUALIFY ROW_NUMBER() OVER (PARTITION BY <primary_key> ORDER BY ingested_at DESC) = 1` to prevent duplicate source keys from causing merge conflicts.
 
 **And no tests to catch it.** The reference tutorial's `obt` model and its other marts do not include a `unique` test on `booking_id`. Without dedup and without a test, duplicate rows stay invisible — the pipeline runs green, and the error only surfaces when downstream aggregations produce inflated numbers.
 
@@ -591,7 +607,7 @@ The current implementation assumes `booking_amount` is a per-night rate, consist
 
 ### 4. Snapshot source chosen for key uniqueness
 
-The reference tutorial snapshots from `obt`, a wide join across bookings, listings, and hosts. The join chain itself is many-to-one and would not fan out on its own — but the tutorial does not dedupe the source tables before joining, so `obt` ends up with multiple rows per `booking_id`. A snapshot source must have exactly one row per `unique_key`; duplicate keys do not raise an error, they silently expand into spurious historical versions.
+The reference tutorial snapshots from `obt`, a wide join across bookings, listings, and hosts. The join chain itself is many-to-one and would not fan out on its own — but the tutorial does not dedupe the source tables before joining, so `obt` ends up with multiple rows per `booking_id`. A snapshot source must have exactly one row per `unique_key`; duplicate keys can lead to incorrect or ambiguous historical records.
 
 This project snapshots from `silver_hosts` and `silver_listings`, both of which are deduplicated at the silver layer and therefore guaranteed key-unique at the time of snapshot.
 
