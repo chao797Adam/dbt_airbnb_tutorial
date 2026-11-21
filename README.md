@@ -583,6 +583,14 @@ However, **`ingested_at` represents ingestion order, not business update order**
 
 This is a deliberate engineering trade-off rather than a complete solution to late-arriving updates. A production implementation would ideally use a reliable source modification timestamp or CDC sequence number to determine the latest business version, while retaining ingestion metadata to track newly arrived data.
 
+**Production consideration: Source-system change tracking.**
+
+In real-world enterprise systems, change tracking is often supported through source-maintained modification timestamps or dedicated CDC mechanisms. For example, Salesforce CRM exposes fields such as `LastModifiedDate` and `SystemModstamp`, Microsoft Dynamics 365 provides `modifiedon`, SAP systems may expose change information through Change Documents or delta-enabled extraction interfaces, and certain Xero API resources provide `UpdatedDateUTC`. The availability and reliability of these mechanisms depend on the source system, business object, and extraction method.
+
+For this Airbnb project, the ideal source schema would include a reliable `updated_at` field for mutable entities such as `hosts` and `listings`, alongside the existing `created_at`. Auto Loader would still generate `ingested_at` to track data arrival, while `updated_at` would determine the latest business version of each record. This would allow incremental ingestion to remain independent of business-version ordering and reduce the risk of late-arriving older records overwriting newer dimension states.
+
+Where stronger guarantees are required, a CDC sequence number or equivalent source change-tracking mechanism would provide a more reliable basis for handling out-of-order updates and deletions.
+
 **No dedup before `MERGE`.** Neither this model nor its siblings include a `QUALIFY ROW_NUMBER() = 1` (or equivalent) before the final `SELECT`. Duplicate source keys can cause ambiguous matches during `MERGE`, potentially resulting in failures when multiple source rows match the same target row. Deduplicating the incoming batch ensures one source row per business key before the merge.
 
 Every incremental model in this project ends with an explicit `QUALIFY ROW_NUMBER() OVER (PARTITION BY <primary_key> ORDER BY ingested_at DESC) = 1` to prevent duplicate source keys from causing merge conflicts.
