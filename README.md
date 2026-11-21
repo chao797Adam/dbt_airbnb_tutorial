@@ -90,6 +90,41 @@ for t in tables:
 
 This verifies that our pipeline can seamlessly ingest new data, maintain strict primary key uniqueness, and accurately track historical changes.
 
+### Incremental Deduplication — Same-Batch Timestamp Tie
+
+**Test sequence (`listing_id = 1`):**
+
+The incremental pipeline was tested across multiple ingestion and snapshot runs using different city values for the same listing.
+
+| Test stage | City | Purpose |
+|---|---|---|
+| Initial state | West Lisafort | Original listing before updates |
+| Update 1 | Melbourne | Verify incremental MERGE and SCD2 history |
+| Update 2 | Brisbane | Verify subsequent updates to an existing listing |
+| Update 3 | Perth | Verify same-batch deduplication and downstream Gold refresh |
+
+**Final state:** Bronze, Silver, and Gold OBT reflect `Perth`, while the SCD2 snapshot preserves the historical versions observed during earlier snapshot runs.
+
+During incremental testing, multiple versions of `listing_id = 1` shared the same `ingested_at` timestamp because they were processed in the same Auto Loader batch. Ordering only by `ingested_at DESC` could therefore select an older record.
+
+To resolve this ambiguity, I added `created_at` as a secondary sorting key in the `stg_listings` deduplication logic:
+
+```sql
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY listing_id
+    ORDER BY ingested_at DESC, created_at DESC
+) = 1
+```
+
+**Verified results:**
+- **Source:** Multiple versions of the same listing were retained.
+- **Bronze / Silver:** Incremental MERGE maintained one row per `listing_id`, with the latest tested city updated to `Perth`.
+- **Gold OBT:** Downstream dbt models reflected `Perth` after rerunning the dependent models.
+- **SCD2 Snapshot:** Historical versions (`West Lisafort`, `Melbourne`, `Brisbane`, `Perth`) were preserved across snapshot runs.
+- **New records:** `listing_id = 502` was successfully inserted through Bronze and Silver.
+
+**Limitation:** `created_at` is only a tie-breaker for records with identical ingestion timestamps. It is not a reliable replacement for a source `updated_at` or CDC sequence number when determining the latest business version.
+
 ---
 
 ## 🗄️ Source
@@ -355,7 +390,7 @@ for t in tables:
 The `stg_*` models are responsible for transforming this raw landing data into a clean Bronze layer by:
 1. **Casting**: Converting all string columns into their proper types (`int`, `double`, `date`, `timestamp`).
 2. **Standardizing**: Excluding the Auto Loader metadata (like `_rescued_data`) and retaining only the required business columns and audit fields.
-3. **Deduplicating**: Using `qualify row_number() over (partition by <primary_key> order by ingested_at desc) = 1` to keep only the most recent version of each record.
+3. **Deduplicating**: Using `qualify row_number() over (partition by <primary_key> ORDER BY ingested_at DESC, created_at DESC) = 1` to keep only the most recent version of each record.
 4. **Incremental Loading**: Filtering on `ingested_at` to process only new data. Each model deduplicates by its primary key using the aforementioned `qualify` clause.
 
 | Model | Primary Key | Description |
@@ -600,7 +635,7 @@ Where stronger guarantees are required, a CDC sequence number or equivalent sour
 
 **No dedup before `MERGE`.** Neither this model nor its siblings include a `QUALIFY ROW_NUMBER() = 1` (or equivalent) before the final `SELECT`. Duplicate source keys can cause ambiguous matches during `MERGE`, potentially resulting in failures when multiple source rows match the same target row. Deduplicating the incoming batch ensures one source row per business key before the merge.
 
-Every incremental model in this project ends with an explicit `QUALIFY ROW_NUMBER() OVER (PARTITION BY <primary_key> ORDER BY ingested_at DESC) = 1` to prevent duplicate source keys from causing merge conflicts.
+Every incremental model in this project ends with an explicit `QUALIFY ROW_NUMBER() OVER (PARTITION BY <primary_key> ORDER BY ingested_at DESC, created_at DESC) = 1` to prevent duplicate source keys from causing merge conflicts.
 
 **And no tests to catch it.** The reference tutorial's `obt` model and its other marts do not include a `unique` test on `booking_id`. Without dedup and without a test, duplicate rows stay invisible — the pipeline runs green, and the error only surfaces when downstream aggregations produce inflated numbers.
 
