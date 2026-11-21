@@ -376,7 +376,7 @@ independent reasons:
    there.
 2. **Uniqueness.** `source` permits duplicate `host_id`/`listing_id` within
    a batch — Auto Loader does no deduplication (see
-   [Bronze Ingestion](#-bronze-ingestion-auto-loader-notebook)). A snapshot
+   [Bronze Ingestion](#-bronze-ingestion-auto-loader--lakeflow-job)). A snapshot
    source needs exactly one row per key; duplicates here don't error, they
    silently expand into spurious historical versions (see
    [Snapshot source chosen for key uniqueness](#4-snapshot-source-chosen-for-key-uniqueness)).
