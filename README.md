@@ -450,13 +450,48 @@ Key-uniqueness tests are especially important at the mart layer. `gold_fact_book
 
 The `dbt_utils` package (declared in `packages.yml`, version `1.3.3`) is also available and can be used to add generic tests (e.g., `unique`, `not_null`, `relationships`) to each model.
 
-### 🚨 Singular Test (Warn Severity)
+### 🚨 Singular Test — Business Anomaly Monitoring (Warn Severity)
 
-In addition to generic tests (which fail the pipeline with an `ERROR`), we created a custom singular test (`tests/source_test.sql`) to flag bookings with `booking_amount < 200`. By setting `severity: 'warn'`, it acts as a monitoring alert rather than a hard pipeline blocker.
+In addition to 16 generic `unique` and `not_null` tests across the Staging, Silver, and Gold layers, I implemented a custom singular test (`tests/source_test.sql`) to demonstrate business-level data quality monitoring.
 
-**Terminal output:** 
-`Got 286 results, configured to warn if != 0. Done. PASS=0 WARN=1 ERROR=0` 
-— This proves the test successfully intercepted 286 anomalous (but potentially valid) records without crashing the DAG.
+**Business Rule & Threshold**
+
+The test identifies bookings where `booking_amount < 200`. This threshold is an illustrative monitoring rule rather than a validated business constraint. Low-value bookings may be legitimate, so they should be flagged for review instead of automatically rejected.
+
+**Implementation**
+
+```sql
+{{ config(severity='warn') }}
+
+SELECT
+    booking_id,
+    listing_id,
+    booking_amount
+FROM {{ source('airbnb_source', 'bookings') }}
+WHERE CAST(booking_amount AS FLOAT) < 200
+```
+
+The test returns records that violate the monitoring condition. Unlike the generic uniqueness and nullability tests configured with error severity, this test uses `severity='warn'` to report potential anomalies without causing a dbt test failure.
+
+**Execution Results**
+
+```text
+WARN 286 source_test
+Got 286 results, configured to warn if != 0
+Done. PASS=0 WARN=1 ERROR=0
+```
+
+The test identified **286 bookings below the monitoring threshold**. These are flagged records, not 286 confirmed data errors.
+
+**Design Decision & Trade-off**
+
+- **ERROR:** Appropriate for critical data integrity violations that should block downstream processing, such as duplicate business keys.
+- **WARN:** Appropriate for potential business anomalies that require investigation but should not automatically interrupt the pipeline.
+- **Limitation:** The $200 threshold is illustrative and would require validation with business stakeholders in a production environment. The current test detects low-value records but does not explain why they occur.
+
+**Key Takeaway**
+
+This test demonstrates how dbt can distinguish between critical data integrity failures and non-blocking business quality alerts, allowing data quality checks to support both pipeline reliability and business monitoring.
 
 ### 🛡️ Proof of No Fan-Out (Row Count Consistency)
 
